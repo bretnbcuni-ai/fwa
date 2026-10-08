@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rips</title>
+<style>
+  :root {
+    --bg: #141216;
+    --ink: #f4efe8;
+    --muted: #9a9188;
+    --line: #2c2830;
+    --bar: #e7a0c4;
+    --bar-now: #f0d48a;
+    --miss: #e2a08a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font: 15px/1.4 "Iowan Old Style", Palatino, Georgia, serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 22px 16px 64px; }
+  header { display: flex; justify-content: space-between; align-items: end; gap: 12px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 560; }
+  .rate { text-align: right; }
+  .rate b { font-size: 34px; letter-spacing: -0.04em; color: #f0d48a; font-weight: 560; }
+  .rate span { color: var(--muted); letter-spacing: 0.08em; font-size: 13px; }
+  .today { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: baseline; margin: 8px 0 12px; }
+  .today b { font-size: 28px; color: #f0d48a; font-weight: 560; }
+  .today .miss { color: var(--miss); }
+  .nav { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  button, input {
+    font: inherit; color: var(--ink); background: transparent;
+    border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px;
+  }
+  button { cursor: pointer; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  input { border-radius: 10px; width: 100%; }
+  .chart {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 4px;
+    align-items: end;
+    height: 220px;
+    padding-top: 22px;
+  }
+  .col { display: flex; flex-direction: column; align-items: center; justify-content: end; height: 100%; min-width: 0; }
+  .num { font-size: 11px; color: #d9d0c8; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+  .bar { width: 100%; border-radius: 5px 5px 2px 2px; background: var(--bar); min-height: 2px; }
+  .col.now .bar { background: var(--bar-now); }
+  .col.miss .bar { background: transparent; border: 1px dashed var(--miss); }
+  .col.miss .num { color: var(--miss); }
+  .hours { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; margin-top: 6px; }
+  .hours span { text-align: center; color: #6f6872; font-size: 11px; }
+  section { margin-top: 34px; }
+  h2 { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); font-weight: 500; margin: 0; }
+  .note { color: var(--muted); font-size: 13px; }
+  .check { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 12px; }
+  .count { margin-top: 16px; font-size: 64px; line-height: 0.9; letter-spacing: -0.04em; }
+  .count small { display: block; margin-top: 8px; font-size: 14px; color: var(--muted); letter-spacing: 0; font-weight: 400; }
+  details { margin-top: 14px; color: var(--muted); font-size: 13px; }
+  .err { color: var(--miss); }
+  footer { margin-top: 36px; color: var(--muted); font-size: 12px; }
+  a { color: inherit; }
+  @media (max-width: 640px) {
+    .num { font-size: 9px; }
+    .check { grid-template-columns: 1fr; }
+    .rate b { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Hourly rips</h1>
+    <div class="rate"><b id="rate">–</b> <span>SPINS/HR</span></div>
+  </header>
+  <div class="today">
+    <span>Rips today</span>
+    <b id="dayTotal">–</b>
+    <span>UTC · per hour</span>
+    <span class="miss" id="miss"></span>
+    <div class="nav">
+      <button id="prev" type="button" aria-label="Previous day">‹</button>
+      <button id="day" type="button">–</button>
+      <button id="next" type="button" aria-label="Next day">›</button>
+      <button id="refresh" type="button">Refresh</button>
+    </div>
+  </div>
+  <div class="chart" id="chart"></div>
+  <div class="hours" id="hours"></div>
+  <p class="note" id="chartNote"></p>
+
+  <section>
+    <h2>Your deposits</h2>
+    <p class="note">Not live. Press the button. It counts listings still Active in the V2 main pool for this wallet.</p>
+    <div class="check">
+      <input id="wallet" spellcheck="false" autocomplete="off" placeholder="0x… your depositor address" />
+      <button id="check" type="button">Check active</button>
+    </div>
+    <div class="count" id="count">–<small id="countSub">waiting</small></div>
+    <details>
+      <summary>RPC, if a public node refuses</summary>
+      <p>Leave blank to try public Ethereum endpoints. Paste your own HTTPS RPC if those fail. Saved only in this browser.</p>
+      <input id="rpc" placeholder="https://…" />
+    </details>
+  </section>
+  <footer>
+    Same hourly index as fwadata.fun (<code>/api/rips</code>). Deposit count reads pool
+    <a href="https://etherscan.io/address/0x958C41181182e76F221331b2755b77D9e1426A98">0x958C…6A98</a> only when you press the button.
+  </footer>
+</main>
+<script>
+const RIPS = "https://fwadata.fun/api/rips";
+const RIPS_PROXY = "https://api.allorigins.win/raw?url=" + encodeURIComponent(RIPS);
+const POOL = "0x958C41181182e76F221331b2755b77D9e1426A98";
+const DEPLOY = 25944609;
+const LISTED = "0x01c953cf171a8c32b553c5b7e0964bae6b2123db065615e54e8425fec3ec16cd";
+const STAGED = "0x8684098dea97bebc638de0445aee7a3cd3929bb89af1add56703b5b721273b4f";
+const LISTINGS_SEL = "0xde74e57b";
+const RPCS = [
+  "https://ethereum-rpc.publicnode.com",
+  "https://rpc.flashbots.net",
+  "https://eth.drpc.org",
+  "https://mainnet.gateway.tenderly.co",
+  "https://rpc.mevblocker.io"
+];
+const CHUNK = 5000;
+const $ = (id) => document.getElementById(id);
+
+let days = [];
+let dayIndex = 0;
+
+const walletEl = $("wallet");
+const rpcEl = $("rpc");
+walletEl.value = localStorage.getItem("rips-wallet") || "";
+rpcEl.value = localStorage.getItem("rips-rpc") || "";
+walletEl.addEventListener("change", () => localStorage.setItem("rips-wallet", walletEl.value.trim()));
+rpcEl.addEventListener("change", () => localStorage.setItem("rips-rpc", rpcEl.value.trim()));
+
+function dayKey(ts) { return new Date(ts * 1000).toISOString().slice(0, 10); }
+
+async function fetchRips() {
+  const urls = [RIPS, RIPS_PROXY];
+  let last = "rips feed failed";
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) { last = "rips " + res.status; continue; }
+      const data = await res.json();
+      if (!Array.isArray(data.counts)) { last = "bad rips payload"; continue; }
+      return data;
+    } catch (err) {
+      last = err.message;
+    }
+  }
+  throw new Error(last);
+}
+
+function buildDays(data) {
+  const by = new Map();
+  data.counts.forEach((n, i) => {
+    const ts = data.startTs + i * 3600;
+    const key = dayKey(ts);
+    if (!by.has(key)) by.set(key, []);
+    by.get(key).push({ hour: new Date(ts * 1000).getUTCHours(), n, covered: data.covered ? data.covered[i] : 1, ts });
+  });
+  return [...by.entries()].map(([key, hours]) => ({ key, hours }));
+}
+
+function renderDay() {
+  const day = days[dayIndex];
+  if (!day) return;
+  const chart = $("chart");
+  const labels = $("hours");
+  chart.innerHTML = "";
+  labels.innerHTML = "";
+  const max = Math.max(1, ...day.hours.map(h => h.n));
+  const latestTs = days[days.length - 1].hours.at(-1).ts;
+  let missing = 0;
+  for (const h of day.hours) {
+    const col = document.createElement("div");
+    const isNow = h.ts === latestTs;
+    const missed = h.covered === 0;
+    col.className = "col" + (isNow ? " now" : "") + (missed ? " miss" : "");
+    const num = document.createElement("div");
+    num.className = "num";
+    num.textContent = missed ? "–" : h.n;
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    bar.style.height = Math.max(4, Math.round((h.n / max) * 168)) + "px";
+    col.append(num, bar);
+    chart.appendChild(col);
+    const lab = document.createElement("span");
+    lab.textContent = String(h.hour).padStart(2, "0");
+    labels.appendChild(lab);
+    if (missed) missing++;
+  }
+  const total = day.hours.reduce((s, h) => s + (h.covered === 0 ? 0 : h.n), 0);
+  $("dayTotal").textContent = total.toLocaleString();
+  $("day").textContent = day.key;
+  $("miss").textContent = missing ? missing + "h not recorded" : "";
+  const last = day.hours.filter(h => h.covered !== 0).at(-1);
+  $("rate").textContent = last ? last.n.toLocaleString() : "–";
+  $("prev").disabled = dayIndex === 0;
+  $("next").disabled = dayIndex === days.length - 1;
+}
+
+async function loadChart() {
+  $("refresh").disabled = true;
+  $("chartNote").textContent = "Loading hourly index…";
+  try {
+    const data = await fetchRips();
+    days = buildDays(data);
+    dayIndex = days.length - 1;
+    renderDay();
+    $("chartNote").textContent = "Same series as fwadata hourly rips. " + data.counts.length + " hours, " + data.total.toLocaleString() + " rips indexed. Refreshes only when you press the button.";
+  } catch (err) {
+    $("chartNote").innerHTML = '<span class="err">' + err.message + "</span>";
+  } finally {
+    $("refresh").disabled = false;
+  }
+}
+
+function rpcList() {
+  const custom = rpcEl.value.trim();
+  return custom ? [custom, ...RPCS] : RPCS.slice();
+}
+async function rpc(method, params) {
+  let last = "no rpc";
+  for (const url of rpcList()) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+      });
+      const data = await res.json();
+      if (data.error) { last = data.error.message || "rpc error"; continue; }
+      return data.result;
+    } catch (err) { last = err.message; }
+  }
+  throw new Error(last);
+}
+function padTopic(addr) {
+  return "0x" + addr.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+}
+async function logsFor(topic0, depositorTopic, fromBlock, toBlock) {
+  const out = [];
+  for (let from = fromBlock; from <= toBlock; from += CHUNK) {
+    const to = Math.min(from + CHUNK - 1, toBlock);
+    const topics = topic0 === LISTED
+      ? [topic0, null, null, depositorTopic]
+      : [topic0, null, depositorTopic];
+    const result = await rpc("eth_getLogs", [{
+      address: POOL,
+      fromBlock: "0x" + from.toString(16),
+      toBlock: "0x" + to.toString(16),
+      topics
+    }]);
+    out.push(...(result || []));
+    $("countSub").textContent = "scanning blocks " + to.toLocaleString();
+  }
+  return out;
+}
+function decodeStatus(raw) {
+  if (!raw || raw === "0x") return null;
+  const hex = raw.slice(2);
+  if (hex.length < 11 * 64) return null;
+  return {
+    status: parseInt(hex.slice(10 * 64, 11 * 64), 16),
+    value: parseInt(hex.slice(5 * 64, 6 * 64), 16)
+  };
+}
+async function checkDeposits() {
+  const addr = walletEl.value.trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+    $("countSub").innerHTML = '<span class="err">Need a 0x address, 40 hex characters.</span>';
+    return;
+  }
+  localStorage.setItem("rips-wallet", addr);
+  $("check").disabled = true;
+  $("count").firstChild.textContent = "…";
+  $("countSub").textContent = "reading pool…";
+  try {
+    const head = parseInt(await rpc("eth_blockNumber", []), 16);
+    const topic = padTopic(addr);
+    const listed = await logsFor(LISTED, topic, DEPLOY, head);
+    const staged = await logsFor(STAGED, topic, DEPLOY, head);
+    const ids = new Set();
+    for (const log of listed) ids.add(parseInt(log.topics[1], 16));
+    for (const log of staged) ids.add(parseInt(log.topics[1], 16));
+    let active = 0, stagedN = 0, wei = 0n;
+    const list = [...ids];
+    for (let i = 0; i < list.length; i++) {
+      const data = LISTINGS_SEL + list[i].toString(16).padStart(64, "0");
+      const raw = await rpc("eth_call", [{ to: POOL, data }, "latest"]);
+      const decoded = decodeStatus(raw);
+      if (!decoded) continue;
+      if (decoded.status === 1) { active++; wei += BigInt(decoded.value); }
+      else if (decoded.status === 5) stagedN++;
+      if (i % 8 === 0) $("countSub").textContent = "checking " + (i + 1) + " / " + list.length;
+    }
+    const eth = Number(wei) / 1e18;
+    $("count").firstChild.textContent = String(active);
+    $("countSub").textContent =
+      active + " active" +
+      (stagedN ? " · " + stagedN + " staged, not in the draw yet" : "") +
+      (eth ? " · " + eth.toFixed(3) + " ETH backing on active" : "") +
+      " · checked " + new Date().toLocaleTimeString();
+  } catch (err) {
+    $("count").firstChild.textContent = "–";
+    $("countSub").innerHTML = '<span class="err">' + err.message + ". Try another RPC.</span>";
+  } finally {
+    $("check").disabled = false;
+  }
+}
+
+$("refresh").addEventListener("click", loadChart);
+$("prev").addEventListener("click", () => { if (dayIndex > 0) { dayIndex--; renderDay(); } });
+$("next").addEventListener("click", () => { if (dayIndex < days.length - 1) { dayIndex++; renderDay(); } });
+$("check").addEventListener("click", checkDeposits);
+loadChart();
+</script>
+</body>
+</html>
